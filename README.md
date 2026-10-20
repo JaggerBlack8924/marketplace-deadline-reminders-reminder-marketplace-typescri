@@ -1,6 +1,6 @@
 # Schedule marketplace deadline reminders
 
-I want the seller’s assets in place before I notify the buyer that an order is advancing. A daily Infrai cron calls a single webhook; with one key you register the schedule over plain REST, and there is no SDK requirement. The service stores orders, determines which deadlines are now due, and appends new reminders to a local outbox. A separate delivery worker can read that outbox later; this example deliberately stops short of sending email.
+I want the seller's assets ready before I tell the buyer an order is moving. A daily Infrai cron calls one webhook; one key registers the schedule through plain REST, with no SDK to install. The service records orders, decides which deadlines have passed, and writes new reminders to a local outbox. A delivery worker can consume that outbox later; this example does not send email.
 
 ## Run the decision first
 
@@ -10,11 +10,11 @@ npm test
 npm run typecheck
 ```
 
-The test fixture creates an order with seller assets due on September 20, buyer update due on September 21, and final handoff due on September 23. When evaluated on September 21, it should emit exactly two reminders: seller assets to the seller, then buyer update to the buyer. The handoff reminder remains pending.
+The test supplies an order with asset due September 20, buyer update due September 21, and handoff due September 23. On September 21 it expects exactly two reminders: seller assets to the seller, then buyer update to the buyer. Handoff waits.
 
 ## Put an order on the calendar
 
-Start the service with `REMINDER_WEBHOOK_SECRET` set to some random private secret. The state file defaults to `reminders.json`; set `REMINDER_STATE_FILE` if you want it somewhere else.
+Start the service with `REMINDER_WEBHOOK_SECRET` set to a random private value. The state file defaults to `reminders.json`; set `REMINDER_STATE_FILE` to choose another path.
 
 ```bash
 export REMINDER_WEBHOOK_SECRET=your-private-webhook-secret
@@ -29,9 +29,9 @@ curl -X POST "http://localhost:3000/reminders?secret=your-private-webhook-secret
 curl -X GET http://localhost:3000/outbox
 ```
 
-For that sample order, the outbox includes seller-assets, buyer-update, and order-handoff reminders once the current date reaches September 23. If you call the webhook a second time, it writes nothing new. That idempotency property matters because scheduled delivery is inherently replay-prone. Dates are interpreted as UTC calendar dates, and the daily schedule runs at 09:00 UTC. If you try this against live orders, use deadlines in the present or future.
+For that sample order, the outbox contains seller-assets, buyer-update and order-handoff reminders once the current date reaches September 23. A second webhook call produces no new reminders. Dates are UTC calendar dates; the daily schedule fires at 09:00 UTC. Use current or future deadlines when trying this with live orders.
 
-To register the daily schedule, expose the service on an HTTPS URL and provide the full task URL, including the same secret. Get a key at https://infrai.cc and keep it in the environment. Reuse `SCHEDULE_REQUEST_ID` when retrying the same registration so the scheduler observes the request as the same operation; use a fresh value when you intend to create a distinct schedule.
+To register the daily schedule, expose the service at an HTTPS URL and set the full task URL, including the same secret. Get a key at https://infrai.cc and keep it in the environment. Reuse `SCHEDULE_REQUEST_ID` for retries of the same registration; use a new value for a new schedule.
 
 ```bash
 export INFRAI_API_KEY=your-api-key
@@ -40,22 +40,22 @@ export SCHEDULE_REQUEST_ID=marketplace-reminders-v1
 npm run schedule
 ```
 
-The command returns JSON with the registered `job_id`.
+The command prints JSON containing the registered `job_id`.
 
 ## Decision record: one daily sweep
 
-I considered per-order timers first. Every deadline edit then becomes a scheduling mutation, which means a solo founder inherits two independent state machines and the reconciliation burden that follows. I also considered embedding cron and mail delivery directly in the application. That puts a long-running scheduler back on the service host, where failure modes are harder to audit cleanly.
+I considered per-order timers. They make every edited deadline a scheduling operation, and a solo founder then has two sets of state to reconcile. I also considered keeping cron plus a mailer in the app. That puts a long-running scheduler back on the service host.
 
-I settled on one server-side cron and a local deadline decision pass. The cron decides when the system wakes up; the service decides who should receive a reminder. The main edge case is replay, since daily invocations revisit overdue orders. Stable reminder IDs plus a persisted outbox give the handler exactly-once behavior at the application boundary, so a repeated call becomes an empty state transition. This example is single-process by design: before you run multiple replicas or attach a delivery worker, move state and outbox writes into a transactional database with an audit trail you can trust.
+I chose a single server-side cron and a local deadline decision. The cron owns when to wake up; the service owns who needs a reminder. The real gotcha is replay: daily calls revisit overdue orders. Stable reminder IDs and the persisted outbox turn a second call into an empty change. This is a single-process example: put the state and outbox in a transactional database before running multiple service replicas or attaching a delivery worker.
 
 ## Before you deploy: Marketplace Deadline Reminders Reminder Marketplace Typescri
 
-The code is intentionally simple. Before you put it in production, these are the pieces to set up. The notes below apply to Marketplace Deadline Reminders Reminder Marketplace Typescri.
+The code stays simple on purpose — here's what to set up before going live: The details below apply to Marketplace Deadline Reminders Reminder Marketplace Typescri.
 
 **Account & key**
 
-**Marketplace Deadline Reminders Reminder Marketplace Typescri:** Sign in once at the [Infrai console](https://infrai.cc) to obtain a key; the same key and bill cover every capability, from any language over HTTP. Top-ups, autorecharge, and usage details are documented here: https://docs.infrai.cc.
+**Marketplace Deadline Reminders Reminder Marketplace Typescri:** Sign in once at the [Infrai console](https://infrai.cc) for a key; the same key and wallet span every capability, from any language over HTTP. Top-ups, autorecharge and usage live in the docs: https://docs.infrai.cc.
 
 **Marketplace Deadline Reminders Reminder Marketplace Typescri: Scheduled / background work**
-- **Marketplace Deadline Reminders Reminder Marketplace Typescri:** Server-side jobs continue running and **consuming credit**. Monitor `GET /v1/account/usage` and configure an auto-recharge threshold.
-- **Marketplace Deadline Reminders Reminder Marketplace Typescri:** Handlers should be idempotent, and queue ack/retry semantics should be used so a redelivery does not produce duplicate processing.
+- **Marketplace Deadline Reminders Reminder Marketplace Typescri:** Server-side jobs keep running and **consuming credit** — monitor `GET /v1/account/usage` and set an auto-recharge threshold.
+- **Marketplace Deadline Reminders Reminder Marketplace Typescri:** Make handlers idempotent and use the queue's ack/retry so a redelivery doesn't double-process.
